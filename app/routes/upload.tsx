@@ -61,7 +61,7 @@ const upload = () => {
         await kv.set(`resume:${uuid}`, JSON.stringify(data));
         setStatusText('Analysis complete, redirecting...');
         console.log(data);
-        // navigate(`/resume/${uuid}`);
+        navigate(`/resume/${uuid}`);
     }
     
 
@@ -89,7 +89,7 @@ const upload = () => {
             {isProcessing ? (
                 <>
                 <h2>{statusText}</h2>
-                <img src="public\images\resume-scan.gif" className="w-full" />
+                <img src="\images\resume-scan.gif" className="w-full" />
                 </>
             ):(
                 <h2>Drop your resume for ATS score and improvement tips</h2>
