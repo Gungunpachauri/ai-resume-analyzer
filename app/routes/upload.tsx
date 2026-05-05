@@ -54,6 +54,9 @@ const upload = () => {
             return;
         }
 
+        setStatusText('Validating document...');
+        const validation = await ai.validateResume(imageFile.file);
+        
         setStatusText('Uploading the image...');
         const uploadedImage = await fs.upload([imageFile.file]);
         console.log('uploadedImage', uploadedImage);
@@ -72,7 +75,19 @@ const upload = () => {
             companyName, jobTitle, jobDescription,
             feedback: '',
         }
-        await kv.set(`resume:${uuid}`, JSON.stringify(data));
+
+        // If validation failed, show error on feedback page instead of blocking upload
+        if (!validation.isResume) {
+            data.feedback = {
+                error: true,
+                errorMessage: "Document Validation Failed",
+                errorReason: validation.reason || 'This is not a resume. Please upload a valid resume PDF.'
+            };
+            await kv.set(`resume:${uuid}`, JSON.stringify(data));
+            setStatusText('Validation failed. Redirecting...');
+            navigate(`/resume/${uuid}`);
+            return;
+        }
 
         setStatusText('Analyzing...');
 

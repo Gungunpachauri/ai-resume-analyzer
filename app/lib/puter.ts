@@ -80,6 +80,7 @@ interface PuterStore {
       image: string | File | Blob,
       testMode?: boolean
     ) => Promise<string | undefined>;
+    validateResume: (imageFile: File | Blob) => Promise<{ isResume: boolean; reason?: string }>;
   };
   kv: {
     get: (key: string) => Promise<string | null | undefined>;
@@ -400,6 +401,89 @@ export const usePuterStore = create<PuterStore>((set, get) => {
     return withTimeout(puter.ai.img2txt(image, testMode), 45000, 'ai.img2txt');
   };
 
+  const validateResume = async (imageFile: File | Blob): Promise<{ isResume: boolean; reason?: string }> => {
+    const puter = getPuter();
+    if (!puter) {
+      setError("Puter.js not available");
+      return { isResume: false, reason: "Puter not available" };
+    }
+
+    try {
+      // Step 1: Extract text from image using OCR
+      const extractedText = await withTimeout(
+        puter.ai.img2txt(imageFile, false),
+        45000,
+        'ai.img2txt'
+      ) as string | undefined;
+
+      if (!extractedText || extractedText.trim().length < 50) {
+        return { isResume: false, reason: "Could not extract text from document" };
+      }
+
+      // Step 2: Use a quick classification prompt with a fast model
+      const classificationPrompt = `You are a document classifier. 
+Analyze the following extracted text and determine if it's a resume/CV or not.
+
+Extracted text:
+${extractedText.substring(0, 1000)}
+
+Respond with ONLY a JSON object (no markdown, no backticks):
+{"isResume": true/false, "confidence": 0-100, "documentType": "resume/invoice/paystub/other"}
+
+Examples of what IS a resume:
+- Contains "Experience", "Education", "Skills", "Summary", "Work History"
+- Lists job titles, companies, dates, responsibilities
+- Professional document meant for job applications
+
+Examples of what is NOT a resume:
+- Invoices: contain "Invoice #", "Amount Due", "Line Items", "Total"
+- Paystubs: contain "Gross Pay", "Deductions", "Net Pay", "Pay Period"
+- Contracts: contain "Agreement", "Parties", "Terms"
+- Reports: contain "Report Date", "Summary", financial/technical content`;
+
+      const response = await withTimeout(
+        puter.ai.chat([{ role: "user", content: [{ type: "text", text: classificationPrompt }] }], 
+          { model: "google/gemini-2.5-flash", stream: false }) as Promise<AIResponse | undefined>,
+        30000,
+        'validateResume:classification'
+      );
+
+      if (!response?.message?.content) {
+        return { isResume: false, reason: "Could not classify document" };
+      }
+
+      // Parse the classification response
+      let classificationText = "";
+      const content = response.message.content;
+      if (typeof content === 'string') {
+        classificationText = content;
+      } else if (Array.isArray(content) && content.length > 0) {
+        const first = content[0];
+        classificationText = first.text ?? first.content ?? JSON.stringify(first);
+      }
+
+      // Extract JSON from response
+      const jsonMatch = classificationText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        return { isResume: false, reason: "Invalid classification response" };
+      }
+
+      const classification = JSON.parse(jsonMatch[0]);
+      
+      if (!classification.isResume) {
+        return { 
+          isResume: false, 
+          reason: `This appears to be a ${classification.documentType || 'non-resume document'}, not a resume.` 
+        };
+      }
+
+      return { isResume: true };
+    } catch (err) {
+      console.error('Resume validation error:', err);
+      return { isResume: false, reason: `Validation error: ${err instanceof Error ? err.message : 'Unknown error'}` };
+    }
+  };
+
   const getKV = async (key: string) => {
     const puter = getPuter();
     if (!puter) {
@@ -478,6 +562,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       feedback: (path: string, message: string) => feedback(path, message),
       img2txt: (image: string | File | Blob, testMode?: boolean) =>
         img2txt(image, testMode),
+      validateResume: (imageFile: File | Blob) => validateResume(imageFile),
     },
     kv: {
       get: (key: string) => getKV(key),

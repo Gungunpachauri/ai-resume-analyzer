@@ -73,7 +73,24 @@ const Resume = () => {
                 </section>
                 <section className="feedback-section">
                     <h2 className="text-4xl !text-black font-bold">Resume Review</h2>
-                    {feedback ? (
+                    {feedback && (feedback as any).error ? (
+                        <div className="mt-8 p-6 rounded-lg border-2 border-red-300 bg-red-50 animate-in fade-in duration-1000">
+                            <div className="flex items-start gap-3">
+                                <div className="text-red-600 text-2xl">⚠️</div>
+                                <div className="flex-1">
+                                    <h3 className="text-lg font-bold text-red-700 mb-2">
+                                        {(feedback as any).errorMessage || 'Document Validation Failed'}
+                                    </h3>
+                                    <p className="text-red-600 text-base">
+                                        {(feedback as any).errorReason || 'This is not a resume. Please upload a valid resume PDF.'}
+                                    </p>
+                                    <p className="text-red-500 text-sm mt-4">
+                                        👈 Your uploaded file is shown on the left. Please upload a valid resume and try again.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    ) : feedback ? (
                         <div className="flex flex-col gap-8 animate-in fade-in duration-1000">
                             <Summary feedback={feedback} />
                             <ATS score={feedback.ATS.score || 0} suggestions={feedback.ATS.tips || []} />
