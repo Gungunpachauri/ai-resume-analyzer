@@ -30,17 +30,22 @@ export async function convertPdfToImage(
 ): Promise<PdfConversionResult> {
   try {
     const lib = await loadPdfJs();
-
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await lib.getDocument({ data: arrayBuffer }).promise;
     const page = await pdf.getPage(1);
 
-    const viewport = page.getViewport({ scale: 4 });
+    // Determine a sensible scale to avoid rendering extremely large canvases.
+    // We get the viewport at scale=1 then cap the scale so the width doesn't
+    // exceed `maxWidth` and also cap the max scale to 2 for reasonable quality.
+    const baseViewport = page.getViewport({ scale: 1 });
+    const maxWidth = 1200;
+    const computedScale = Math.min(2, Math.max(0.8, maxWidth / baseViewport.width));
+    const viewport = page.getViewport({ scale: computedScale });
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
 
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
 
     if (context) {
       context.imageSmoothingEnabled = true;
@@ -50,10 +55,10 @@ export async function convertPdfToImage(
     await page.render({ canvasContext: context!, viewport }).promise;
 
     return new Promise((resolve) => {
+      // Use a slightly reduced quality to keep image sizes and encoding time down.
       canvas.toBlob(
         (blob) => {
           if (blob) {
-            // Create a File from the blob with the same name as the pdf
             const originalName = file.name.replace(/\.pdf$/i, "");
             const imageFile = new File([blob], `${originalName}.png`, {
               type: "image/png",
@@ -72,8 +77,8 @@ export async function convertPdfToImage(
           }
         },
         "image/png",
-        1.0
-      ); // Set quality to maximum (1.0)
+        0.8
+      );
     });
   } catch (err) {
     return {
@@ -82,4 +87,11 @@ export async function convertPdfToImage(
       error: `Failed to convert PDF: ${err}`,
     };
   }
+}
+
+// Public helper to preload the pdf.js library early (e.g. on app start)
+export function preloadPdfJs(): void {
+  // Fire-and-forget; loadPdfJs handles deduping and caching.
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises
+  loadPdfJs();
 }

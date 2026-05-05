@@ -11,6 +11,7 @@ import type { Route } from "./+types/root";
 import "./app.css";
 import { usePuterStore } from "./lib/puter";
 import { useEffect } from "react";
+import { preloadPdfJs } from "./lib/pdf2img";
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -31,6 +32,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     init()
+    // Preload pdf.js to avoid a large dynamic import at the moment of upload
+    preloadPdfJs();
+    // Dynamically load the Puter SDK after init to avoid its interstitial blocking the UI
+    if (typeof window !== "undefined") {
+      const existing = document.querySelector('script[src="https://js.puter.com/v2/"]');
+      if (!existing) {
+        const s = document.createElement("script");
+        s.src = "https://js.puter.com/v2/";
+        s.async = true;
+        document.body.appendChild(s);
+      }
+    }
   },[init]);
 
   return (
@@ -42,7 +55,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <Links />
       </head>
       <body>
-        <script src="https://js.puter.com/v2/"></script>
         {children}
         <ScrollRestoration />
         <Scripts />

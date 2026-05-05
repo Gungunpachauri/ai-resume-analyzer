@@ -100,6 +100,18 @@ const getPuter = (): typeof window.puter | null =>
   typeof window !== "undefined" && window.puter ? window.puter : null;
 
 export const usePuterStore = create<PuterStore>((set, get) => {
+  // Helper to add a timeout to platform calls to avoid indefinite hangs
+  const withTimeout = async <T,>(p: Promise<T>, ms: number, name?: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, rej) => {
+      timer = setTimeout(() => rej(new Error(`${name || 'operation'} timed out after ${ms}ms`)), ms);
+    });
+    try {
+      return await Promise.race([p, timeout]) as T;
+    } finally {
+      clearTimeout(timer!);
+    }
+  };
   const setError = (msg: string) => {
     set({
       error: msg,
@@ -271,7 +283,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
-    return puter.fs.write(path, data);
+    return withTimeout(puter.fs.write(path, data), 20000, 'fs.write');
   };
 
   const readDir = async (path: string) => {
@@ -280,7 +292,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
-    return puter.fs.readdir(path);
+    return withTimeout(puter.fs.readdir(path), 20000, 'fs.readdir');
   };
 
   const readFile = async (path: string) => {
@@ -289,7 +301,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
-    return puter.fs.read(path);
+    return withTimeout(puter.fs.read(path), 20000, 'fs.read');
   };
 
   const upload = async (files: File[] | Blob[]) => {
@@ -298,7 +310,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
-    return puter.fs.upload(files);
+    return withTimeout(puter.fs.upload(files), 30000, 'fs.upload');
   };
 
   const deleteFile = async (path: string) => {
@@ -307,7 +319,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
-    return puter.fs.delete(path);
+    return withTimeout(puter.fs.delete(path), 10000, 'fs.delete');
   };
 
   const chat = async (
@@ -321,10 +333,11 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
-    // return puter.ai.chat(prompt, imageURL, testMode, options);
-    return puter.ai.chat(prompt, imageURL, testMode, options) as Promise<
-      AIResponse | undefined
-    >;
+    return withTimeout(
+      puter.ai.chat(prompt, imageURL, testMode, options) as Promise<AIResponse | undefined>,
+      60000,
+      'ai.chat'
+    );
   };
 
   const feedback = async (path: string, message: string) => {
@@ -333,25 +346,49 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
+    const messages: ChatMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            puter_path: path,
+          },
+          {
+            type: "text",
+            text: message,
+          },
+        ],
+      },
+    ];
 
-    return puter.ai.chat(
-      [
-        {
-          role: "user",
-          content: [
-            {
-              type: "file",
-              puter_path: path,
-            },
-            {
-              type: "text",
-              text: message,
-            },
-          ],
-        },
-      ],
-      { model: "claude-3-7-sonnet" }
-    ) as Promise<AIResponse | undefined>;
+    const modelCandidates = [
+      "openai/gpt-4o-mini",
+      "anthropic/claude-sonnet-4",
+      "google/gemini-2.5-flash",
+    ];
+
+    let lastError: unknown;
+
+    for (const model of modelCandidates) {
+      try {
+        const response = await withTimeout(
+          puter.ai.chat(messages, { model, stream: false }) as Promise<AIResponse | undefined>,
+          120000,
+          `ai.feedback:${model}`
+        );
+
+        if (response) {
+          return response;
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("All AI model attempts failed");
   };
 
   const img2txt = async (image: string | File | Blob, testMode?: boolean) => {
@@ -360,7 +397,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
-    return puter.ai.img2txt(image, testMode);
+    return withTimeout(puter.ai.img2txt(image, testMode), 45000, 'ai.img2txt');
   };
 
   const getKV = async (key: string) => {
@@ -369,7 +406,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
-    return puter.kv.get(key);
+    return withTimeout(puter.kv.get(key), 5000, 'kv.get');
   };
 
   const setKV = async (key: string, value: string) => {
@@ -378,7 +415,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
-    return puter.kv.set(key, value);
+    return withTimeout(puter.kv.set(key, value), 5000, 'kv.set');
   };
 
   const deleteKV = async (key: string) => {
@@ -387,7 +424,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
       setError("Puter.js not available");
       return;
     }
-    return puter.kv.delete(key);
+    return withTimeout(puter.kv.delete(key), 5000, 'kv.delete');
   };
 
   const listKV = async (pattern: string, returnValues?: boolean) => {
@@ -399,7 +436,7 @@ export const usePuterStore = create<PuterStore>((set, get) => {
     if (returnValues === undefined) {
       returnValues = false;
     }
-    return puter.kv.list(pattern, returnValues);
+    return withTimeout(puter.kv.list(pattern, returnValues), 5000, 'kv.list');
   };
 
   const flushKV = async () => {
